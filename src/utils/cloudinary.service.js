@@ -25,6 +25,7 @@ import fs from "fs"
             )
             // file uploaded sucessfully
             console.log("File is uploaded in cloudinary",response.url)       // UPLOAD HONE K BAD KA PUBLIC URL MIL JAEGA BY RES.URL
+            fs.unlinkSync(localFilePath)       // after uploading to cloudinary from local file it should be deleted from local
             return response
         }
         catch{
