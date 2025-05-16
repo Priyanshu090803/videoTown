@@ -1,11 +1,13 @@
-import { ApiError } from "../utils/apiError";
-import { asyncHandler } from "../utils/asyncHandler.utils";
+
+import { asyncHandler } from "../utils/asyncHandler.utils.js";
 import jwt from 'jsonwebtoken'
-import { User } from "../model/user.model";
+import { User } from "../model/user.model.js";
+import { ApiError } from "../utils/apiError.js";
 
 export const verifyJWT = asyncHandler(async(req,res, next)=>{
-    try{const token = req?.cookies?.accessToken || req.header("Authorization")?.replace("Bearer ","") // yha pe header mai wrna bearer hota h and then token hota h
-    if(!token){
+    try{
+        const token = req?.cookies?.accessToken || req.header("Authorization")?.replace("Bearer ","") // yha pe header mai wrna bearer hota h and then token hota h
+    if(!token){ 
         throw new ApiError(401,"Unauthorized request!")
     }
     const decodedToken= jwt.verify(token,process.env.ACCESS_TOKEN_SECRET)
@@ -15,6 +17,7 @@ export const verifyJWT = asyncHandler(async(req,res, next)=>{
         throw new ApiError(401, "Invalid acess token")
     }
     req.user = user;
+    next()
     }catch(error){
     throw new ApiError(401,error?.message||"Invalid acess token")
 }
