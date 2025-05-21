@@ -4,6 +4,8 @@ import { User } from "../model/user.model.js";  // this user is directly talk to
 import {uploadOnCloudinary} from "../utils/cloudinary.service.js"
 import {ApiResponse} from "../utils/apiResponse.js"
 import jwt from 'jsonwebtoken'
+import { use } from "react";
+import mongoose, { Mongoose } from "mongoose";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const generateAcessTokenAndRefreshToken = async(userId)=>{
@@ -186,4 +188,220 @@ const registerUser = asyncHandler( async(req,res)=>{
             throw new ApiError(404,error.message||"Refresh access token not autnorized")
         }
     })
-export {registerUser,loginUser,logoutUser,refreshAccessToken}
+    const changePassword = asyncHandler(async(req,res)=>{
+        const user = await User.findById(req.user._id)
+        const {oldPassword,newPassword,confirmPassword}= user;
+        const isCorrectPassword= await user.isPasswordCorrect(oldPassword)
+        if(!isCorrectPassword){
+            throw new ApiError(404,"Invalid old password")
+        }
+        if(newPassword !== confirmPassword){
+            throw new ApiError(404,"Password is not matched")
+        }
+        user.password = newPassword
+        await user.save({validateBeforeSave:false})
+        return res.status(200)
+        .json(
+            new ApiResponse(
+                200,
+                {},
+                "Password changed sucessfully"
+            )
+        )
+    })
+    const currentUser = asyncHandler (async(req,res)=>{
+        res.status(200).
+        json(
+            new ApiResponse(200,req.user,"Current user fetched sucessfully")
+        )
+    })
+    const updateAccountDetails = asyncHandler(async(req,res)=>{
+        const {username,email} = req.body;
+        if(!(username|| email)){
+            throw new ApiError(404,"Change username and password")
+        }
+        const user = await User.findByIdAndUpdate(req.user?._id,
+            {
+                $set:{
+                    username,
+                    email:email
+                }
+            },
+            {new:true}  // this will return the updated value
+        ).select("-password")
+        return res.status(200)
+        .json(
+            ApiResponse(200,user,"Account details updated sucessfully")
+        )
+    })
+    const updateUserAvatarImage = asyncHandler(async(req,res)=>{
+        try {
+            const avatarLocalPath= req.file?.path
+            if(!avatarLocalPath){
+                throw new ApiError(404,"Can't find Avatar local path")
+            }
+            const avatar = await uploadOnCloudinary(avatarLocalPath)
+            if(!avatar.url){
+                throw new ApiError(404,"Error while uploading on avatar")
+            }
+            const user = User.findByIdAndUpdate(req.user._id,         // no need to save bcz this method findoneandupdate do save also
+                {
+                    $set:{
+                        avatar:avatar.url
+                    }
+                },
+                {new:true}
+            ).select("-password")
+            res.status(200)
+            .json(
+                new ApiResponse(200,user,"Avatar image saved sucessfully")
+            )
+        } catch (error) {
+            throw new ApiError(404,error.message || "Avatar not updated!")
+        }
+    })
+    const updateUserCoverImage = asyncHandler(async(req,res)=>{
+       try {
+        const localFilePath = req.file.path;
+        if(!localFilePath){
+            throw new ApiError(404,"Can't find local path")
+        }
+        const coverImage= await uploadOnCloudinary(localFilePath);
+        if(!coverImage.url){
+            throw new ApiError(404, "Error while uploading cover image")
+        }
+        const user = User.findByIdAndUpdate(req.user._id,
+            {
+                $set:{
+                    coverImage:coverImage.url
+                }
+            },
+            {new:true}
+        ).select("-password")
+        res.status(200).
+        json(
+            new ApiResponse(200,user,"Cover Image uploaded sucessfully")
+        )
+        } 
+        catch (error) {
+             throw new ApiError(404,error.message|| "Can't update Cover image!")    
+        }
+    })
+    const getUserChannelProfile= asyncHandler(async(req,res)=>{
+        const {username}=req.params;
+        if(!username?.trim()){
+            throw new ApiError(404,"Username not found!")
+        }
+        const channel= await User.aggregate([
+            {
+                $match:{
+                    username:username?.toLowerCase()
+                } // is pipeline se user mil gya hoga jise hm params se dudh rhe h
+            },{
+                $lookup:{
+                    from:"subscriptions",   // backend mai subscription lowercase mai hoke plural ho jaega
+                    localField:"_id",        // hamari localfield wli id forenfield mai match hoti h
+                    foreignField:"channel",   // sare channel mai dudhenge sub ko
+                    as:"subscribers"       // ye return documents krenge named subscriber Or woi document honge jnki id channel k andr wali id se match hogi
+                }
+            },{
+                $lookup:{
+                    from:"subscriptions",
+                    localField:"_id",     // jitne bhi subscriber wali m localfield wali id dikegi to use lao bolra h
+                    foreignField:"subscriber",   // yaha subscriber document mai localfield wali id match kraenge
+                    as: "subcribedTo"
+                }
+            },
+            // ye do field alg alg hai and ab hme inko add bhi krna h
+            {
+                $addFields:{       // jitni values h unko rakhega hi , but additional values add krega
+                    subscriberCount:{
+                        $size: "$subscribers"     // for counting {$ size} is used
+                    },
+                    channelSubscribedToCount:{
+                        $size: "$subcribedTo"   // $subcribedTo is written bcz it is now a field
+                    },
+                    isSubscribed:{
+                        $cond:{      //condition check hogi yha ki channel subscriber hai ya nhi 
+                            if:{$in:[req.user?._id, "$subscribers.subscriber"]}, // condition mai if k andr logic check hota h, 
+                            // if req.user.id subscribers.subscriber k andr hai ya nhi   or in array or obj m dekh leta h
+                            then:true,
+                            else:false
+                        }
+                    }
+                }
+            },
+            {
+                $project:{   // project is used for , ki mai ky dera hu user ko , ye selected value hi dega bas
+                    fullName:1,
+                    username:1,
+                    subscriberCount:1,
+                    channelSubscribedToCount:1,
+                    isSubscribed:1,
+                    coverImage:1,
+                    email:1,
+                    avatar:1
+                }
+            }
+        ])
+        if(!channel.length){
+            throw new ApiError(400,"Channel not exist!")
+        }
+        return res.status(200).json(
+            new ApiResponse(200,channel[0],"User channel fetched sucessfully!")
+        )
+    })
+    const watchHistory = asyncHandler(async(req,res)=>{
+        const user = await User.aggregate([
+            {
+                $match:{
+                    _id: new mongoose.Types.ObjectId(req.user._id) // aggergation pipelines ka code directly hi jata h 
+                   }                                                 
+            },{
+                $lookup:{
+                    from:"videos",       // mongodb backend m plural and lowercase m save krta h
+                    localField:"watchHistory", // local user mai watchHistory h
+                    foreignField:"_id",
+                    as:"watchHistory",   // ab yha pe watchHistory k andr bhot sari video mili hongi
+                                            // har lookup k andr ek pipeline lgaenge for finding user/creator of video
+                    pipeline:[
+                        {
+                            $lookup:{
+                                from: "users",
+                                localField:"owner",
+                                foreignField:"_id",
+                                as:"owner",         // owner k andr bhot sari cheeze aa gyi h User ki or hme bs 3-4 cheeze deni h
+                                                   // bcz watchHistory mai to bs video and thoda sa jisne bnaaya h wo chahiye 
+                                pipeline:[        // that's why we use pipeline here
+                                    {
+                                        $project:{
+                                            username:1,
+                                            fullName:1,
+                                            avatar:1,
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        {     // yha tk data nikal gya owner ka and next pipeline for sending neat data to frontend
+                            $addFields:{       // addfield add extra value to that pipeline array
+                                owner:{
+                                    $fist: "$owner" // now it will send 1st data(object)
+
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        ])
+        return res.status(200).
+        json(
+            new ApiResponse(
+                200,
+                user[0].watchHistory,
+                "Watch history fetched sucessfully"
+            )
+        )
+    })
+export {registerUser,loginUser,logoutUser,refreshAccessToken,changePassword,currentUser,updateAccountDetails,updateUserAvatarImage ,updateUserCoverImage,getUserChannelProfile,watchHistory}
