@@ -91,7 +91,7 @@ userSchema.methods.generateAcessToken= function(){
 }
 
 userSchema.methods.generateRefreshToken = function(){
-    return jwt.sign(
+    return jwt.sign(                      // this refer to user
         {
             _id:this._id,               // refresh token bar bar refresh hota h to isme bs id rkhenge   
         },

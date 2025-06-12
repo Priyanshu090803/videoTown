@@ -1,5 +1,5 @@
 import mongoose ,{Schema} from "mongoose";
-import mongooseAggregatePaginate from "mongoose-aggregate-paginate-v2";
+import mongooseAggregatePaginate from "mongoose-aggregate-paginate-v2";  // for pagination, like ek bar m sari cheez nhi bhjenge
 
 const videoSchema =  new Schema({
     videoFile:{
